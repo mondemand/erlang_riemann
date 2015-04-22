@@ -486,7 +486,7 @@ end_to_end_udp(E, F) ->
   Entity = F(riemann_pb:decode_riemannmsg(BinMsg)),
   ?assertEqual(1, length(Entity)),
   (C#c.close)(),
-  stop().
+  stop(?MODULE).
 
 end_to_end_event_state_tcp_test() ->
   Events = [event([{service, "test service"}, {state, "ok"}, {time, 1000020202}]) || _ <- lists:seq(1, 350)],
@@ -520,6 +520,6 @@ end_to_end_tcp(Es, Validate) ->
   gen_tcp:close(Socket),
   (C#c.close)(),
   receive {result, ok} -> ok end,
-  stop().
+  stop(?MODULE).
 
 -endif.
