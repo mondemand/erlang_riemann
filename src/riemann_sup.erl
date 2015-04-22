@@ -21,13 +21,12 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/0,
+         next_process/0
+        ]).
 
 %% Supervisor callbacks
 -export([init/1]).
-
-%% Helper macro for declaring children of supervisor
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
 
 %% ===================================================================
 %% API functions
@@ -40,6 +39,43 @@ start_link() ->
 %% Supervisor callbacks
 %% ===================================================================
 
+-define(TABLE, riemann).
+
+process_name (N) ->
+  list_to_atom (lists:flatten(["riemann_",integer_to_list (N)])).
+
+next_process () ->
+  % just round robin
+  NumProcesses = erlang:system_info(schedulers),
+  N = ets:update_counter (?TABLE, count, {2, 1, NumProcesses, 1}),
+  process_name (N).
+
 init([]) ->
-  Processes = [?CHILD(riemann, worker)],
+
+  % number of processes spawned should probably be config, but
+  % this is a dirty hack
+  NumProcesses = erlang:system_info(schedulers),
+
+  % very poor form to do this in the supervisor, but this is a
+  % quick hack to see if this will work for me, once I figure it
+  % out I might do the right thing and have another process
+  % hold the table
+  ets:new (?TABLE, [set, public, named_table,
+                    {keypos, 1}, {write_concurrency, true},
+                    {read_concurrency, true}]),
+  ets:insert (?TABLE, {count, 1}),
+
+  Processes = [
+                begin
+                  Name = riemann:process_name (N),
+                  { Name,
+                    {riemann, start_link, [Name]},
+                    permanent,
+                    5000,
+                    worker,
+                    [riemann]
+                  }
+                end
+                || N <- lists:seq (1, NumProcesses)
+              ],
   {ok, {{one_for_one, 5, 10}, Processes}}.

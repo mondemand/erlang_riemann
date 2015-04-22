@@ -31,7 +31,7 @@
 %% API
 -export([
   start/0,
-  stop/0,
+  stop/1,
   start_link/0,
   start_link/1,
   send/1,
@@ -68,6 +68,7 @@
 }).
 
 -define(UDP_MAX_SIZE, 16384).
+-define(TABLE, riemann).
 
 -opaque riemann_event() :: #riemannevent{}.
 -opaque riemann_state() :: #riemannstate{}.
@@ -146,25 +147,34 @@ send_event(Vals) ->
       [riemann_event()] | riemann_event()
     | [riemann_state()] | riemann_state()
     ) -> send_response().
-send(Entities) when is_list(Entities) ->
-  gen_server:call(?MODULE, {send, Entities});
+send (Entities = [#riemannevent{}|_]) ->
+  Bin = build_bin(Entities),
+  Name = riemann_sup:next_process(),
+  gen_server:call(Name, {send_bin, Bin});
+send (Entities = [#riemannstate{}|_]) ->
+  Bin = build_bin(Entities),
+  Name = riemann_sup:next_process(),
+  gen_server:call(Name, {send_bin, Bin});
 send(Entity) -> send([Entity]).
--spec send(r_service_name(), number()) -> send_response().
+-spec send(r_service_name() | atom (), number() | [riemann_state()] | [riemann_event()]) -> send_response().
 send(Service, Metric) ->
   send([create_event([{service, Service}, {metric, Metric}])]).
 
 -spec run_query(r_query()) -> query_response().
 run_query(Query) ->
-  gen_server:call(?MODULE, {run_query, Query}).
+  Name = riemann_sup:next_process(),
+  gen_server:call(Name, {run_query, Query}).
 
-stop() ->
-  gen_server:cast(?MODULE, stop).
+stop(Name) ->
+  gen_server:cast(Name, stop).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([]) ->
+  % so our terminate/2 always gets called
+  process_flag( trap_exit, true ),
   case setup_riemann_connectivity(#state{}) of
     {error, Reason} ->
       lager:error("Could not setup connections to riemann: ~p", [Reason]),
@@ -172,6 +182,12 @@ init([]) ->
     Other -> Other
   end.
 
+handle_call({send_bin, Bin}, _From, S0) ->
+  {Reply, S1} = case send_bin(Bin, S0) of
+    {{ok, _}, SN} -> {ok, SN};
+    Other -> Other
+  end,
+  {reply, Reply, S1};
 handle_call({send, Entities}, _From, S0) ->
   {Reply, S1} = case send_entities(Entities, S0) of
     {{ok, _}, SN} -> {ok, SN};
@@ -254,6 +270,10 @@ run_query0(Query, State) ->
   send_with_tcp(BinMsg, State).
 
 send_entities(Entities, State) ->
+  BinMsg = build_bin(Entities),
+  send_bin(BinMsg,State).
+
+build_bin (Entities) ->
   {Events, States} = lists:splitwith(fun(#riemannevent{}=_) -> true;
                                         (_) -> false
                                      end, Entities),
@@ -261,7 +281,9 @@ send_entities(Entities, State) ->
       events = Events,
       states = States
   },
-  BinMsg = iolist_to_binary(riemann_pb:encode_riemannmsg(Msg)),
+  iolist_to_binary(riemann_pb:encode_riemannmsg(Msg)).
+
+send_bin(BinMsg,State) ->
   case byte_size(BinMsg) > ?UDP_MAX_SIZE of
     true -> 
       send_with_tcp(BinMsg, State);
