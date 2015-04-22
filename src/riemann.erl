@@ -148,13 +148,11 @@ send_event(Vals) ->
     | [riemann_state()] | riemann_state()
     ) -> send_response().
 send (Entities = [#riemannevent{}|_]) ->
-  Bin = build_bin(Entities),
-  Name = riemann_sup:next_process(),
-  gen_server:call(Name, {send_bin, Bin});
+%  gen_server:call(riemann_sup:next_process(), {send_bin, build_bin(Entities)});
+  gen_server:call(riemann_sup:next_process(), {send, Entities});
 send (Entities = [#riemannstate{}|_]) ->
-  Bin = build_bin(Entities),
-  Name = riemann_sup:next_process(),
-  gen_server:call(Name, {send_bin, Bin});
+%  gen_server:call(riemann_sup:next_process(), {send_bin, build_bin(Entities)});
+  gen_server:call(riemann_sup:next_process(), {send, Entities});
 send(Entity) -> send([Entity]).
 -spec send(r_service_name() | atom (), number() | [riemann_state()] | [riemann_event()]) -> send_response().
 send(Service, Metric) ->
@@ -270,8 +268,7 @@ run_query0(Query, State) ->
   send_with_tcp(BinMsg, State).
 
 send_entities(Entities, State) ->
-  BinMsg = build_bin(Entities),
-  send_bin(BinMsg,State).
+  send_bin(build_bin(Entities),State).
 
 build_bin (Entities) ->
   {Events, States} = lists:splitwith(fun(#riemannevent{}=_) -> true;
