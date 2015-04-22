@@ -67,7 +67,7 @@ init([]) ->
 
   Processes = [
                 begin
-                  Name = riemann:process_name (N),
+                  Name = process_name (N),
                   { Name,
                     {riemann, start_link, [Name]},
                     permanent,
